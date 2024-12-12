@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  service1:
+    build: ./service
+    ports:
+      - "3001:3000"
+    environment:
+      - PORT=3001
+
+  service2:
+    build: ./service
+    ports:
+      - "3002:3000"
+    environment:
+      - PORT=3002
+
+  nginx:
+    build: ./nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - service1
+      - service2
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+  
+
+  cassandra1:
+    image: cassandra:4.0
+    container_name: cassandra1
+    environment:
+      - CASSANDRA_CLUSTER_NAME=MyCluster
+      - CASSANDRA_SEEDS=cassandra1
+      - CASSANDRA_START_RPC=true
+    networks:
+      - cassandra_net
+    ports:
+      - "9042:9042" # Portul pentru conectarea aplicațiilor la Cassandra
+
+  cassandra2:
+    image: cassandra:4.0
+    container_name: cassandra2
+    environment:
+      - CASSANDRA_CLUSTER_NAME=MyCluster
+      - CASSANDRA_SEEDS=cassandra1
+      - CASSANDRA_START_RPC=true
+    depends_on:
+      - cassandra1
+    networks:
+      - cassandra_net
+
+networks:
+  cassandra_net:
+    driver: bridge
