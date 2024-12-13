@@ -2,7 +2,9 @@ version: '3.8'
 
 services:
   service1:
-    build: ./service
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "3001:3000"
     environment:
@@ -13,7 +15,9 @@ services:
       - backend
 
   service2:
-    build: ./service
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "3002:3000"
     environment:
