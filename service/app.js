@@ -1,59 +1,54 @@
 const express = require('express');
-const redis = require('redis');
-const cassandra = require('cassandra-driver'); // Adăugăm driverul Cassandra
+const Redis = require('ioredis');
+const { Pool } = require('pg');
+require('dotenv').config();
+
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Configurare conexiune Redis
-const cache = redis.createClient({ url: 'redis://redis:6379' });
-cache.connect().catch(err => console.error('Eroare la conectarea cu Redis:', err));
-
-// Configurare conexiune Cassandra
-const cassandraClient = new cassandra.Client({
-    contactPoints: ['cassandra1', 'cassandra2'], // Nodurile Cassandra
-    localDataCenter: 'datacenter1', // Nume implicit al datacenterului
+// Configurare conexiune Redis cu TLS activat
+const redisClient = new Redis(process.env.REDIS_URL, {
+    tls: {}, // Activează TLS
 });
 
-// Verificare conexiune Cassandra
-cassandraClient.connect()
-    .then(() => console.log('Conectat la clusterul Cassandra'))
-    .catch(err => console.error('Eroare la conectarea cu Cassandra:', err));
+// Event handlers pentru Redis
+redisClient.on('connect', () => {
+    console.log('Conexiunea cu Redis a fost realizată cu succes!');
+});
 
-// Creare keyspace și tabel în Cassandra (o singură dată la pornire)
-cassandraClient.execute(`
-    CREATE KEYSPACE IF NOT EXISTS test_keyspace
-    WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 2};
-`).then(() => {
-    return cassandraClient.execute(`
-        CREATE TABLE IF NOT EXISTS test_keyspace.messages (
-            id UUID PRIMARY KEY,
-            message TEXT
-        );
-    `);
-}).then(() => {
-    console.log('Keyspace și tabel create cu succes în Cassandra.');
-}).catch(err => console.error('Eroare la crearea keyspace-ului sau tabelului:', err));
+redisClient.on('error', (err) => {
+    console.error('Eroare la conectarea cu Redis:', err);
+});
+
+// Configurare conexiune PostgreSQL
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false, // Dezactivează verificarea certificatului pentru simplitate
+    },
+});
 
 // Endpoint principal
 app.get('/', async (req, res) => {
     try {
-        const cacheKey = `message:${port}`; // Mesaj unic pentru fiecare port
-        const cachedData = await cache.get(cacheKey);
+        const cacheKey = `message:${port}`;
+        const cachedData = await redisClient.get(cacheKey);
 
-        const message = cachedData
-            ? cachedData // Dacă există în cache, folosim mesajul
-            : `Salut! Aceasta este instanța care rulează pe portul ${port}.`;
+        let message;
+        if (cachedData) {
+            message = cachedData; // Folosește datele din Redis
+        } else {
+            message = `Salut! Aceasta este instanța care rulează pe portul ${port}.`;
 
-        if (!cachedData) {
-            // Dacă nu există în cache, salvăm mesajul
-            await cache.set(cacheKey, message, { EX: 10 }); // Expiră în 10 secunde
+            // Salvează mesajul în Redis cu expirare de 10 secunde
+            await redisClient.set(cacheKey, message, 'EX', 10);
 
-            // Salvăm mesajul și în Cassandra
-            const query = `INSERT INTO test_keyspace.messages (id, message) VALUES (uuid(), ?)`;
-            await cassandraClient.execute(query, [message], { prepare: true });
+            // Salvează mesajul în PostgreSQL
+            const query = 'INSERT INTO messages (message) VALUES ($1)';
+            await pool.query(query, [message]);
         }
 
-        // Generăm răspunsul HTML cu stilizare
+        // Generăm răspunsul HTML
         res.send(`
             <!DOCTYPE html>
             <html lang="ro">
@@ -69,12 +64,12 @@ app.get('/', async (req, res) => {
                         height: 100vh;
                         margin: 0;
                         font-family: Arial, sans-serif;
-                        background-color: #f8d2ea; /* Culoare fundal */
+                        background-color: #f8d2ea;
                     }
                     h1 {
-                        color: #333; /* Culoare text */
+                        color: #333;
                         text-align: center;
-                        font-size: 24px; /* Ajustează dimensiunea textului aici */
+                        font-size: 24px;
                     }
                 </style>
             </head>
@@ -89,6 +84,7 @@ app.get('/', async (req, res) => {
     }
 });
 
+// Pornirea serverului
 app.listen(port, () => {
     console.log(`Serverul funcționează pe portul ${port}`);
 });

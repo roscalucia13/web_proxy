@@ -12,6 +12,9 @@
   "dependencies": {
     "cassandra-driver": "^4.7.2",
     "express": "^4.21.2",
-    "redis": "^4.7.0"
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.1",
+    "redis": "^4.7.0",
+    "service": "^0.1.4"
   }
 }
